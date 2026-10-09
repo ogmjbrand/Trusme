@@ -1,5 +1,6 @@
 "use client";
-import { useActionState, useEffect, useRef, type ReactNode } from "react";
+import { useActionState, useEffect, useRef, useState, type ReactNode } from "react";
+import { ConfirmDialog } from "./confirm-dialog";
 import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
@@ -94,17 +95,40 @@ export function InlineAction<T>({ action, fields, label, variant = "secondary", 
 
 function ConfirmSubmit({ children, variant, size, confirm }: { children: ReactNode; variant: "primary" | "secondary" | "ghost" | "danger" | "gold"; size: "sm" | "md"; confirm?: string }) {
   const { pending } = useFormStatus();
+  const [open, setOpen] = useState(false);
+  const btn = useRef<HTMLButtonElement>(null);
+  const confirmed = useRef(false);
   return (
-    <button
-      type="submit"
-      disabled={pending}
-      className={buttonClass(variant, size)}
-      onClick={(e) => {
-        if (confirm && !window.confirm(confirm)) e.preventDefault();
-      }}
-    >
-      {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
-      {children}
-    </button>
+    <>
+      <button
+        ref={btn}
+        type="submit"
+        disabled={pending}
+        className={buttonClass(variant, size)}
+        onClick={(e) => {
+          if (confirm && !confirmed.current) {
+            e.preventDefault();
+            setOpen(true);
+          }
+          confirmed.current = false;
+        }}
+      >
+        {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
+        {children}
+      </button>
+      {confirm ? (
+        <ConfirmDialog
+          open={open}
+          message={confirm}
+          tone={variant === "danger" ? "danger" : "primary"}
+          onCancel={() => setOpen(false)}
+          onConfirm={() => {
+            setOpen(false);
+            confirmed.current = true;
+            btn.current?.form?.requestSubmit(btn.current);
+          }}
+        />
+      ) : null}
+    </>
   );
 }

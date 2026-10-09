@@ -4,7 +4,9 @@ import { PlanValidationError, type ExecutionPlan } from "@/lib/execution/types";
 import type { ExecutionEngine } from "@/lib/execution/engine";
 import type { AppToolContext } from "@/lib/tools/context";
 import { toolRegistry } from "@/lib/tools";
-import { getAIProvider } from "./provider";
+import { getAIProvider, type PlanningContext } from "./provider";
+
+type PlanningHistory = NonNullable<PlanningContext["history"]>;
 import { ruleBasedPlan } from "./rule-planner";
 
 export interface PlanOutcome {
@@ -14,7 +16,7 @@ export interface PlanOutcome {
 }
 
 /** Ask the configured model for a plan; fall back to rules if it is unavailable or invalid. */
-export async function buildPlan(request: string, ws: WorkspaceContext, engine: ExecutionEngine<AppToolContext>, counts: Record<string, number>): Promise<PlanOutcome> {
+export async function buildPlan(request: string, ws: WorkspaceContext, engine: ExecutionEngine<AppToolContext>, counts: Record<string, number>, history: PlanningHistory = []): Promise<PlanOutcome> {
   const provider = getAIProvider();
   if (!provider) {
     return { plan: ruleBasedPlan(request), providerId: "rules", fallbackReason: "No AI provider is configured; the rule-based planner was used." };
@@ -28,6 +30,7 @@ export async function buildPlan(request: string, ws: WorkspaceContext, engine: E
       defaultCurrency: ws.org.defaultCurrency,
       tools: toolRegistry().list(),
       counts,
+      history,
     });
     engine.validatePlan(plan); // throws PlanValidationError
     return { plan, providerId: provider.id, fallbackReason: null };

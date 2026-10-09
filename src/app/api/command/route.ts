@@ -49,6 +49,8 @@ export async function POST(req: Request) {
       if (error) throw error;
       conversationId = data.id as string;
     }
+    const { data: prior } = await ws.supabase.from("messages").select("role, content").eq("conversation_id", conversationId).in("role", ["user", "assistant"]).order("created_at", { ascending: false }).limit(6);
+    const history = ((prior ?? []) as { role: "user" | "assistant"; content: string }[]).reverse();
     const { error: msgErr } = await admin.from("messages").insert({ conversation_id: conversationId, organization_id: orgId, user_id: ws.user.id, role: "user", content: request });
     if (msgErr) throw msgErr;
 
@@ -61,7 +63,7 @@ export async function POST(req: Request) {
     }));
 
     const engine = getEngine();
-    const { plan, fallbackReason } = await buildPlan(request, ws, engine, counts);
+    const { plan, fallbackReason } = await buildPlan(request, ws, engine, counts, history);
     const exec = await engine.createExecution({
       orgId,
       actorUserId: ws.user.id,
@@ -107,6 +109,7 @@ export async function POST(req: Request) {
           controller.enqueue(encoder.encode(fallback));
         } finally {
           await admin.from("messages").insert({ conversation_id: conversationId, organization_id: orgId, user_id: null, role: "assistant", content: full, execution_id: exec.id });
+          await admin.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", conversationId);
           controller.close();
         }
       },

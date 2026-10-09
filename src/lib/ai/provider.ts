@@ -21,6 +21,8 @@ export interface PlanningContext {
   defaultCurrency: string;
   tools: Pick<ToolDefinition, "id" | "title" | "description" | "sideEffect" | "inputSchema">[];
   counts: Record<string, number>;
+  /** Recent turns of this conversation (oldest first), for follow-up requests. */
+  history?: { role: "user" | "assistant"; content: string }[];
 }
 
 export interface AIProvider {
@@ -69,7 +71,7 @@ function toolCatalog(ctx: PlanningContext): string {
 function userPrompt(ctx: PlanningContext): string {
   return `Workspace: ${ctx.organizationName} (user role: ${ctx.role}, default currency ${ctx.defaultCurrency}, today ${ctx.today}).
 Record counts: ${JSON.stringify(ctx.counts)}
-
+${ctx.history?.length ? `\nEarlier in this conversation (context only; do not repeat completed work):\n${ctx.history.map((h) => `${h.role}: ${h.content.slice(0, 600)}`).join("\n")}\n` : ""}
 Registered tools:
 ${toolCatalog(ctx)}
 
