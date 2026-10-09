@@ -16,7 +16,7 @@ export default async function SettingsPage() {
   const [{ data: profile }, { data: prefs }, { data: org }] = await Promise.all([
     ws.supabase.from("profiles").select("full_name, phone, email").eq("id", ws.user.id).single(),
     ws.supabase.from("user_preferences").select("ai_auto_run_low_risk, notification_settings").eq("user_id", ws.user.id).maybeSingle(),
-    ws.supabase.from("organizations").select("name, country, default_currency, kind, slug").eq("id", ws.org.organizationId).single(),
+    ws.supabase.from("organizations").select("name, country, default_currency, kind, slug, reminder_cadence_days").eq("id", ws.org.organizationId).single(),
   ]);
   const canOrg = can(ws.role, "organization.update");
   return (
@@ -52,6 +52,11 @@ export default async function SettingsPage() {
                 <Field label="Default currency" htmlFor="oc"><Select id="oc" name="default_currency" defaultValue={org?.default_currency} disabled={!canOrg}>{SUPPORTED_CURRENCIES.map((c) => <option key={c}>{c}</option>)}</Select></Field>
                 <Field label="Country (ISO code)" htmlFor="oco"><Input id="oco" name="country" defaultValue={org?.country} maxLength={2} disabled={!canOrg} /></Field>
               </div>
+              <Field label="Reminder drafting cadence" htmlFor="ocad" hint="Daily job drafts reminders for overdue invoices not reminded within this many days. Drafts only — sending always needs approval.">
+                <Select id="ocad" name="reminder_cadence_days" defaultValue={org?.reminder_cadence_days ? String(org.reminder_cadence_days) : ""} disabled={!canOrg}>
+                  <option value="">Off</option><option value="3">Every 3 days</option><option value="7">Every 7 days</option><option value="14">Every 14 days</option><option value="30">Every 30 days</option>
+                </Select>
+              </Field>
               {canOrg ? <SubmitButton variant="secondary">Save workspace</SubmitButton> : <p className="text-xs text-fg-muted">Only admins can change workspace settings.</p>}
             </ActionForm>
             {canOrg ? (

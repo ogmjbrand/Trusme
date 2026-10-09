@@ -145,3 +145,10 @@ describe("hashing & permissions", () => {
     expect(atLeast(null, "viewer")).toBe(false);
   });
 });
+
+describe("obligation roll-forward", () => {
+  it("finds the next occurrence on or after today", () => {
+    const next = occurrences({ id: "o", name: "Rent", amount_minor: 1, frequency: "monthly", next_due_on: "2026-07-15" }, "2026-10-09", "2027-11-13")[0];
+    expect(next).toBe("2026-10-15");
+  });
+});

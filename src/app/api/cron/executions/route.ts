@@ -2,6 +2,8 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { env } from "@/lib/env";
 import { runPending } from "@/lib/execution/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { runDailyJobs } from "@/lib/services/scheduled";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -15,6 +17,8 @@ export async function GET(req: Request) {
   if (header.length !== expected.length || !timingSafeEqual(Buffer.from(header), Buffer.from(expected))) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  const result = await runPending(10, 45_000);
-  return NextResponse.json(result);
+  const result = await runPending(10, 35_000);
+  // Daily jobs are idempotent per org per day, so running them every tick is safe.
+  const daily = await runDailyJobs(createAdminClient(), new Date().toISOString().slice(0, 10));
+  return NextResponse.json({ ...result, daily });
 }

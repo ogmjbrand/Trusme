@@ -29,7 +29,8 @@ export async function updatePreferences(_: ActionResult<null> | null, form: Form
 export async function updateOrganization(_: ActionResult<null> | null, form: FormData): Promise<ActionResult<null>> {
   return runAction(async () => {
     const ws = await requirePermission("organization.update");
-    const d = z.object({ name: z.string().trim().min(1).max(120), default_currency: z.string().regex(/^[A-Z]{3}$/), country: z.string().length(2) }).parse({ name: form.get("name"), default_currency: form.get("default_currency"), country: form.get("country") });
+    const d = z.object({ name: z.string().trim().min(1).max(120), default_currency: z.string().regex(/^[A-Z]{3}$/), country: z.string().length(2), reminder_cadence_days: z.coerce.number().int().min(1).max(60).nullable() })
+      .parse({ name: form.get("name"), default_currency: form.get("default_currency"), country: form.get("country"), reminder_cadence_days: form.get("reminder_cadence_days") ? form.get("reminder_cadence_days") : null });
     unwrap(await ws.supabase.from("organizations").update(d).eq("id", ws.org.organizationId));
     await writeAudit(ws.supabase, { organizationId: ws.org.organizationId, actorUserId: ws.user.id, action: "organization.updated", resourceType: "organization", resourceId: ws.org.organizationId, metadata: d });
     revalidatePath("/app", "layout");

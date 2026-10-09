@@ -1,0 +1,25 @@
+# Minimal Supabase CLI configuration for local development (`supabase start`).
+project_id = "trustos"
+
+[api]
+port = 54321
+schemas = ["public"]
+
+[db]
+port = 54322
+major_version = 16
+
+[studio]
+port = 54323
+
+[storage]
+file_size_limit = "10MiB"
+
+[auth]
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000/auth/confirm", "http://localhost:3000/auth/callback"]
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+enable_confirmations = true
