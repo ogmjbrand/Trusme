@@ -80,6 +80,7 @@ export interface StepRow {
   title: string;
   rationale: string | null;
   input: unknown;
+  input_resolved: boolean;
   depends_on: number[];
   side_effect: SideEffect;
   requires_approval: boolean;
@@ -171,6 +172,11 @@ export interface ToolDefinition<I = unknown, O = unknown, C extends ToolContextB
   requiresApproval?: (input: I) => boolean;
   retry: { maxAttempts: number; idempotent: boolean };
   timeoutMs: number;
+  /**
+   * Optional late binding: turn a scoped input (e.g. "drafts from this
+   * execution") into concrete targets before approval is requested.
+   */
+  resolve?: (ctx: C, input: I) => Promise<I>;
   /** Human-readable description of exactly what will happen. Shown on approval cards. */
   summarize: (input: I) => string;
   run: (ctx: C, input: I) => Promise<ToolResult<O>>;

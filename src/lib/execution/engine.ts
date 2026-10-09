@@ -153,6 +153,7 @@ export class ExecutionEngine<C extends ToolContextBase = ToolContextBase> {
           title: planStep.title || s.def.title,
           rationale: planStep.rationale ?? null,
           input: s.input,
+          input_resolved: !s.def.resolve,
           depends_on: s.dependsOn,
           side_effect: s.def.sideEffect,
           requires_approval: requiresApproval,
@@ -296,7 +297,31 @@ export class ExecutionEngine<C extends ToolContextBase = ToolContextBase> {
       return;
     }
 
-    // 2. Approval gate — bound to the exact tool + input.
+    const ctx = this.deps.makeContext({
+      orgId: exec.organization_id,
+      actorUserId: exec.created_by,
+      actorRole: role!,
+      executionId: exec.id,
+      stepId: step.id,
+      idempotencyKey: step.idempotency_key,
+      now: this.now(),
+    });
+
+    // 2a. Late binding of concrete targets (before any approval is requested).
+    if (def.resolve && !step.input_resolved) {
+      try {
+        const resolved = def.inputSchema.parse(await def.resolve(ctx, def.inputSchema.parse(step.input)));
+        step.input = resolved;
+        step.input_resolved = true;
+        await this.store.updateStep(step.id, { input: resolved, input_resolved: true });
+        await this.event(exec, step, "step.resolved", `Resolved targets: ${def.summarize(resolved)}`, null, "system");
+      } catch (err) {
+        await this.failStep(exec, step, { message: err instanceof Error ? err.message : String(err), code: err instanceof ToolError ? err.code : "resolve_failed", setupRequired: err instanceof ToolError ? err.setupRequired : undefined });
+        return;
+      }
+    }
+
+    // 2b. Approval gate — bound to the exact tool + (resolved) input.
     const hash = actionHash(step.tool_id, step.input);
     if (step.requires_approval) {
       const approvals = await this.store.approvalsForStep(step.id);
@@ -340,16 +365,6 @@ export class ExecutionEngine<C extends ToolContextBase = ToolContextBase> {
     });
     await this.store.updateExecution(exec.id, { current_step: step.position });
     await this.event(exec, step, "step.started", `Running ${def.title} (attempt ${attempt})`, null, "system", { tool: def.id });
-
-    const ctx = this.deps.makeContext({
-      orgId: exec.organization_id,
-      actorUserId: exec.created_by,
-      actorRole: role!,
-      executionId: exec.id,
-      stepId: step.id,
-      idempotencyKey: step.idempotency_key,
-      now: this.now(),
-    });
 
     try {
       const input = def.inputSchema.parse(step.input);
@@ -558,6 +573,7 @@ export class ExecutionEngine<C extends ToolContextBase = ToolContextBase> {
     await this.store.updateStep(step.id, {
       status: "pending",
       requires_approval: needsFreshApproval,
+      input_resolved: !def.resolve,
       max_attempts: step.attempt_count + Math.max(1, def.retry.idempotent ? def.retry.maxAttempts : 1),
       error: null,
       completed_at: null,

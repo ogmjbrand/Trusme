@@ -54,5 +54,5 @@ export function requireEnv<K extends keyof ServerEnv>(...keys: K[]): { [P in K]-
   const e = env();
   const missing = keys.filter((k) => e[k] === undefined || e[k] === null);
   if (missing.length) throw new ConfigurationError(missing as string[]);
-  return e as { [P in K]-?: NonNullable<ServerEnv[P]> };
+  return e as unknown as { [P in K]-?: NonNullable<ServerEnv[P]> };
 }

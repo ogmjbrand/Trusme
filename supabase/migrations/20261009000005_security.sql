@@ -28,16 +28,18 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_prev text := coalesce(current_setting('trustos.system_write', true), '');
 begin
   perform set_config('trustos.system_write', 'on', true);
   update public.products
      set stock_on_hand = stock_on_hand + new.quantity
    where id = new.product_id and organization_id = new.organization_id;
   if not found then
-    perform set_config('trustos.system_write', '', true);
+    perform set_config('trustos.system_write', v_prev, true);
     raise exception 'product does not belong to organization' using errcode = '23503';
   end if;
-  perform set_config('trustos.system_write', '', true);
+  perform set_config('trustos.system_write', v_prev, true);
   return new;
 end;
 $$;
@@ -69,6 +71,7 @@ as $$
 declare
   v_sub bigint;
   v_tax bigint;
+  v_prev text := coalesce(current_setting('trustos.system_write', true), '');
 begin
   select coalesce(sum(round(quantity * unit_price_minor)), 0)::bigint,
          coalesce(sum(round(round(quantity * unit_price_minor) * tax_rate_bps / 10000.0)), 0)::bigint
@@ -81,7 +84,7 @@ begin
          tax_minor = v_tax,
          total_minor = greatest(v_sub + v_tax - discount_minor, 0)
    where id = p_invoice;
-  perform set_config('trustos.system_write', '', true);
+  perform set_config('trustos.system_write', v_prev, true);
 end;
 $$;
 
@@ -94,6 +97,7 @@ as $$
 declare
   v_paid bigint;
   v_inv public.invoices%rowtype;
+  v_prev text := coalesce(current_setting('trustos.system_write', true), '');
 begin
   select * into v_inv from public.invoices where id = p_invoice for update;
   if not found then return; end if;
@@ -111,7 +115,7 @@ begin
            else 'issued'
          end
    where id = p_invoice;
-  perform set_config('trustos.system_write', '', true);
+  perform set_config('trustos.system_write', v_prev, true);
 
   -- Keep linked JobProof payment status in step with the invoice.
   update public.service_jobs j
