@@ -26,12 +26,14 @@ export async function signOut() {
 
 export async function createOrganization(_: ActionResult<{ id: string }> | null, form: FormData): Promise<ActionResult<{ id: string }>> {
   return runAction(async () => {
-    const ws = await getWorkspace();
+    const supabase = await createClient();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user) throw new Error("Sign in first");
     const input = z
       .object({ name: z.string().trim().min(2).max(120), currency: z.string().regex(/^[A-Z]{3}$/).default("NGN"), country: z.string().length(2).default("NG") })
       .parse({ name: form.get("name"), currency: form.get("currency") || undefined, country: form.get("country") || undefined });
-    const id = unwrap(await ws.supabase.rpc("create_organization", { p_name: input.name, p_country: input.country, p_currency: input.currency })) as string;
-    unwrap(await ws.supabase.from("user_preferences").upsert({ user_id: ws.user.id, active_organization_id: id }));
+    const id = unwrap(await supabase.rpc("create_organization", { p_name: input.name, p_country: input.country, p_currency: input.currency })) as string;
+    unwrap(await supabase.from("user_preferences").upsert({ user_id: auth.user.id, active_organization_id: id }));
     revalidatePath("/app", "layout");
     return { id };
   }, "Business workspace created");
