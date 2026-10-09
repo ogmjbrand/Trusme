@@ -1,3 +1,4 @@
+import { nowMs } from "@/lib/format";
 import { AlertTriangle } from "lucide-react";
 import { getWorkspace } from "@/lib/auth/context";
 import { can } from "@/lib/auth/permissions";
@@ -24,7 +25,7 @@ export default async function IncomePage({ searchParams }: { searchParams: Promi
   const ws = await getWorkspace();
   const org = ws.org.organizationId;
   const currency = SUPPORTED_CURRENCIES.includes(sp.currency as never) ? sp.currency! : ws.org.defaultCurrency;
-  const since = new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10);
+  const since = new Date(nowMs() - 90 * 86_400_000).toISOString().slice(0, 10);
   const [obl, inv, income, goals, payments, expenses, saved] = await Promise.all([
     ws.supabase.from("recurring_obligations").select("*").eq("organization_id", org).order("next_due_on"),
     ws.supabase.from("invoices").select("id, invoice_number, total_minor, amount_paid_minor, due_date, currency").eq("organization_id", org).in("status", ["issued", "partially_paid"]),

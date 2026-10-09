@@ -1,3 +1,4 @@
+import { nowMs } from "@/lib/format";
 import { Download } from "lucide-react";
 import { getWorkspace } from "@/lib/auth/context";
 import { can } from "@/lib/auth/permissions";
@@ -16,7 +17,7 @@ export const metadata = { title: "Reports" };
 export default async function ReportsPage() {
   const ws = await getWorkspace();
   const org = ws.org.organizationId;
-  const now = Date.now();
+  const now = nowMs();
   const [inv, products, margin, pay30, exp30] = await Promise.all([
     ws.supabase.from("invoices").select("id, invoice_number, customer_id, status, currency, total_minor, amount_paid_minor, due_date").eq("organization_id", org).in("status", ["issued", "partially_paid"]),
     ws.supabase.from("products").select("currency, stock_on_hand, unit_cost_minor").eq("organization_id", org),

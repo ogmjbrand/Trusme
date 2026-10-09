@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { nowMs } from "@/lib/format";
 import { TrendingDown, TrendingUp } from "lucide-react";
 import { getWorkspace } from "@/lib/auth/context";
 import { can } from "@/lib/auth/permissions";
@@ -23,7 +24,7 @@ export default async function ProfitabilityPage({ searchParams }: { searchParams
   const days = [7, 30, 90, 180].includes(Number(sp.days)) ? Number(sp.days) : 30;
   const ws = await getWorkspace();
   const org = ws.org.organizationId;
-  const now = Date.now();
+  const now = nowMs();
   const to = new Date(now).toISOString();
   const from = new Date(now - days * 86_400_000).toISOString();
   const prevFrom = new Date(now - 2 * days * 86_400_000).toISOString();

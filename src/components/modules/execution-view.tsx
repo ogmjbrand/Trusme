@@ -44,12 +44,14 @@ function StepIcon({ status }: { status: string }) {
 export function ExecutionView({ executionId, compact = false }: { executionId: string; compact?: boolean }) {
   const [data, setData] = useState<Payload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [fetchedAt, setFetchedAt] = useState(0);
 
   const load = useCallback(async () => {
     try {
       const res = await fetch(`/api/executions/${executionId}`, { cache: "no-store" });
       if (!res.ok) throw new Error(res.status === 404 ? "Execution not found" : `Failed to load (${res.status})`);
       setData(await res.json());
+      setFetchedAt(Date.now());
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -57,7 +59,8 @@ export function ExecutionView({ executionId, compact = false }: { executionId: s
   }, [executionId]);
 
   useEffect(() => {
-    void load();
+    const t = setTimeout(load, 0);
+    return () => clearTimeout(t);
   }, [load]);
 
   const status = data?.execution.status;
@@ -80,7 +83,7 @@ export function ExecutionView({ executionId, compact = false }: { executionId: s
   const done = steps.filter((s) => ["succeeded", "failed", "skipped", "rejected", "cancelled"].includes(s.status)).length;
   const pct = steps.length ? Math.round((done / steps.length) * 100) : 0;
   const canAct = data.role !== "viewer";
-  const stale = ["queued", "running", "waiting"].includes(e.status) && Date.now() - Date.parse(e.updated_at) > 30_000;
+  const stale = ["queued", "running", "waiting"].includes(e.status) && fetchedAt - Date.parse(e.updated_at) > 30_000;
 
   return (
     <div className="space-y-4">

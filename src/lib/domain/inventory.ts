@@ -45,12 +45,13 @@ const DEFAULT_LEAD_TIME = 7;
  */
 export function averageDailySales(history: SalesHistoryPoint[], productId: string, windowDays: number, now: Date): number | null {
   if (windowDays < MIN_HISTORY_DAYS_FOR_VELOCITY) return null;
+  if (history.length === 0) return null;
   const since = now.getTime() - windowDays * 86_400_000;
-  const relevant = history.filter((h) => h.product_id === productId && Date.parse(h.occurred_at) >= since);
-  if (relevant.length === 0) return 0;
   const earliest = Math.min(...history.map((h) => Date.parse(h.occurred_at)));
   const observedDays = Math.min(windowDays, (now.getTime() - earliest) / 86_400_000);
   if (observedDays < MIN_HISTORY_DAYS_FOR_VELOCITY) return null;
+  const relevant = history.filter((h) => h.product_id === productId && Date.parse(h.occurred_at) >= since);
+  if (relevant.length === 0) return 0;
   const units = relevant.reduce((a, h) => a + h.quantity, 0);
   return Math.round((units / observedDays) * 1000) / 1000;
 }

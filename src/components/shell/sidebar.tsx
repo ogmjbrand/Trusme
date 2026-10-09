@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Activity, Boxes, Briefcase, Circle, CreditCard, FileBarChart, Hammer, LayoutDashboard, ListChecks, Menu, Plug, Receipt, Rocket,
   ScrollText, Settings, ShieldAlert, ShieldCheck, Sparkles, TrendingUp, Users, UsersRound, Wallet, X, type LucideIcon,
@@ -60,8 +60,6 @@ function NavLinks({ role, pendingApprovals, onNavigate }: { role: OrgRole; pendi
 
 export function Sidebar({ role, pendingApprovals, switcher }: { role: OrgRole; pendingApprovals: number; switcher: React.ReactNode }) {
   const [open, setOpen] = useState(false);
-  const pathname = usePathname();
-  useEffect(() => setOpen(false), [pathname]);
   return (
     <>
       <aside className="hidden w-64 shrink-0 border-r border-line bg-surface lg:flex lg:flex-col">

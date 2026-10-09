@@ -26,3 +26,8 @@ export function qty(n: number | string): string {
   const v = Number(n);
   return Number.isInteger(v) ? v.toLocaleString("en-NG") : v.toLocaleString("en-NG", { maximumFractionDigits: 3 });
 }
+
+/** Request-time clock for server components. */
+export function nowMs(): number {
+  return Date.now();
+}

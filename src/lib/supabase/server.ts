@@ -5,11 +5,12 @@ import { requireEnv } from "@/lib/env";
 
 /** Request-scoped client acting as the signed-in user. RLS applies. */
 export async function createClient() {
+  // Read cookies first: this marks the route as dynamic before any config check.
+  const cookieStore = await cookies();
   const { NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY } = requireEnv(
     "NEXT_PUBLIC_SUPABASE_URL",
     "NEXT_PUBLIC_SUPABASE_ANON_KEY",
   );
-  const cookieStore = await cookies();
   return createServerClient(NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, {
     cookies: {
       getAll: () => cookieStore.getAll(),
