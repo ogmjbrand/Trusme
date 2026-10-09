@@ -13,6 +13,7 @@ TrustOS is **not yet production-ready**. This page is the honest ledger.
 | Every rule-planner output validates against the real tool registry; consequential tools resolve targets before approval and are non-idempotent | `tests/unit/registry.test.ts` |
 | Execution engine: plan validation, approvals bound to input hash, approver roles, rejection → skipped dependents, backoff retries, no auto-retry of non-idempotent steps, fresh approval on retry, run-time permission re-check, cancellation, idempotent creation, leases, crash recovery | `tests/unit/engine.test.ts` (in-memory store) |
 | Money arithmetic, receivables aging, restock rules, margins (no double counting), cash-flow projection, risk heuristics, career/launch builders, rule planner, Stripe signature verification | `tests/unit/*.test.ts` |
+| AI fallback: a model plan with an unregistered tool, invalid input or a provider error is replaced by the rule planner and never executed; structured output is constrained to registered tool IDs | `tests/unit/plan-service.test.ts` (mocked provider) |
 | Lint, strict typecheck, production build | `npm run lint`, `npm run typecheck`, `npm run build` |
 | Public pages render on desktop and mobile without horizontal overflow; security headers; `/app` gated; unsigned webhooks and cron calls rejected | `npm run test:e2e` |
 
