@@ -12,10 +12,11 @@ export type WebhookOutcome = { status: number; body: string };
  *  4. insert a provider_verified payment (unique provider + reference)
  * A payment never becomes "paid" because a browser said so.
  */
-export async function processPaymentWebhook(db: SupabaseClient, provider: PaymentProvider, rawBody: string, headers: Headers): Promise<WebhookOutcome> {
+export async function processPaymentWebhook(getDb: () => SupabaseClient, provider: PaymentProvider, rawBody: string, headers: Headers): Promise<WebhookOutcome> {
   if (!provider.configured) return { status: 503, body: `${provider.id} not configured` };
   const event = await provider.verifyWebhook(rawBody, headers);
   if (!event) return { status: 401, body: "invalid signature" };
+  const db = getDb();
 
   const orgId = event.metadata.organization_id ?? null;
   const ins = await db

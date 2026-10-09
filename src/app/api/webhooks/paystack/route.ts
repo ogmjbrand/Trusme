@@ -6,6 +6,6 @@ export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   const raw = await req.text();
-  const r = await processPaymentWebhook(createAdminClient(), paystack(), raw, req.headers);
+  const r = await processPaymentWebhook(createAdminClient, paystack(), raw, req.headers);
   return new Response(r.body, { status: r.status });
 }
