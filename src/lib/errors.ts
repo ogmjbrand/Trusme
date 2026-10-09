@@ -1,6 +1,7 @@
 import { ZodError } from "zod";
 import { AuthorizationError } from "@/lib/auth/permissions";
 import { ConfigurationError } from "@/lib/env";
+import { RateLimitError } from "@/lib/services/rate-limit-error";
 
 export type ActionResult<T = undefined> =
   | { ok: true; data: T; message?: string }
@@ -22,7 +23,7 @@ export function toUserError(err: unknown): { error: string; fieldErrors?: Record
     }
     return { error: "Please correct the highlighted fields.", fieldErrors };
   }
-  if (err instanceof AuthorizationError) return { error: err.message };
+  if (err instanceof AuthorizationError || err instanceof RateLimitError) return { error: err.message };
   if (err instanceof ConfigurationError) return { error: `Setup required: ${err.missing.join(", ")} is not configured.` };
   const pg = err as PgLikeError;
   if (pg && typeof pg === "object" && typeof pg.code === "string") {

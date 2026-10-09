@@ -160,6 +160,7 @@ export async function setPurchaseOrderStatus(_: ActionResult<null> | null, form:
     }
     const patch: Record<string, unknown> = { status };
     if (status === "approved") Object.assign(patch, { approved_by: ws.user.id, approved_at: new Date().toISOString() });
+    if (status === "sent") Object.assign(patch, { sent_at: new Date().toISOString() });
     unwrap(await ws.supabase.from("purchase_orders").update(patch).eq("id", id).eq("organization_id", ws.org.organizationId));
     await writeAudit(ws.supabase, { organizationId: ws.org.organizationId, actorUserId: ws.user.id, action: `purchase_order.${status}`, resourceType: "purchase_order", resourceId: id, metadata: { total_minor: po.total_minor } });
     revalidatePath(`/app/inventory/purchase-orders/${id}`);
@@ -206,4 +207,50 @@ export async function requestRestockPlan(_: ActionResult<{ executionId: string }
     });
     return { executionId: exec.id };
   });
+}
+
+export async function requestPurchaseOrderEmail(_: ActionResult<{ executionId: string }> | null, form: FormData): Promise<ActionResult<{ executionId: string }>> {
+  return runAction(async () => {
+    const ws = await requirePermission("executions.create");
+    const id = uuid.parse(form.get("id"));
+    const { data: po } = await ws.supabase.from("purchase_orders").select("id, status").eq("id", id).eq("organization_id", ws.org.organizationId).maybeSingle();
+    if (!po) throw new Error("Purchase order not found");
+    if (po.status !== "approved") throw new Error("Approve the purchase order before sending it");
+    const engine = getEngine();
+    const exec = await engine.createExecution({
+      orgId: ws.org.organizationId,
+      actorUserId: ws.user.id,
+      request: "Email purchase order to supplier",
+      autoRunLowRisk: ws.preferences.ai_auto_run_low_risk,
+      idempotencyKey: `send-po-${id}-${Date.now()}`,
+      plan: { goal: "Email a purchase order to its supplier", summary: "Send the approved purchase order after admin approval", planner: "manual", steps: [{ toolId: "purchase_orders.send_to_supplier", title: "Email purchase order to supplier", input: { purchaseOrderId: id } }] },
+    });
+    after(async () => {
+      await engine.run(exec.id);
+    });
+    return { executionId: exec.id };
+  }, "Send requested — an admin must approve the exact recipient");
+}
+
+/** Bill a recorded sale: one draft invoice per sale, lines copied from the sale (net of returns). */
+export async function invoiceFromSale(_: ActionResult<{ id: string }> | null, form: FormData): Promise<ActionResult<{ id: string }>> {
+  return runAction(async () => {
+    const ws = await requirePermission("records.write");
+    const id = uuid.parse(form.get("sale_id"));
+    const org = ws.org.organizationId;
+    type Sale = { id: string; sale_number: string; customer_id: string | null; currency: string; discount_minor: number; invoice_id: string | null; sale_items: { product_id: string; quantity: number; returned_quantity: number; unit_price_minor: number; products: { name: string } | null }[] };
+    const sale = unwrap(await ws.supabase.from("sales").select("id, sale_number, customer_id, currency, discount_minor, invoice_id, sale_items(product_id, quantity, returned_quantity, unit_price_minor, products(name))").eq("id", id).eq("organization_id", org).single()) as unknown as Sale;
+    if (sale.invoice_id) throw new Error("This sale already has an invoice");
+    if (!sale.customer_id) throw new Error("Add a customer to the sale before invoicing it");
+    const lines = sale.sale_items.filter((i) => Number(i.quantity) - Number(i.returned_quantity) > 0);
+    if (!lines.length) throw new Error("Nothing left to invoice after returns");
+    const number = unwrap(await ws.supabase.rpc("next_document_number", { p_org: org, p_kind: "invoice" })) as string;
+    const inv = unwrap(await ws.supabase.from("invoices").insert({ organization_id: org, customer_id: sale.customer_id, invoice_number: number, currency: sale.currency, sale_id: sale.id, notes: `For sale ${sale.sale_number}`, created_by: ws.user.id }).select("id").single()) as { id: string };
+    unwrap(await ws.supabase.from("invoice_items").insert(lines.map((l, position) => ({ organization_id: org, invoice_id: inv.id, product_id: l.product_id, description: l.products?.name ?? "Item", quantity: Number(l.quantity) - Number(l.returned_quantity), unit_price_minor: l.unit_price_minor, position }))));
+    if (sale.discount_minor) unwrap(await ws.supabase.from("invoices").update({ discount_minor: sale.discount_minor }).eq("id", inv.id));
+    unwrap(await ws.supabase.from("sales").update({ invoice_id: inv.id }).eq("id", sale.id));
+    await writeAudit(ws.supabase, { organizationId: org, actorUserId: ws.user.id, action: "invoice.created_from_sale", resourceType: "invoice", resourceId: inv.id, metadata: { sale_id: sale.id } });
+    revalidatePath("/app/inventory");
+    return { id: inv.id };
+  }, "Draft invoice created from the sale (stock was already updated by the sale)");
 }

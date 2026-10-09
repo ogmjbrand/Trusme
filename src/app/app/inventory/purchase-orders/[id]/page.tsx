@@ -10,7 +10,7 @@ import { ActionForm, InlineAction, SubmitButton } from "@/components/ui/action-f
 import { Input } from "@/components/ui/field";
 import { LinkButton } from "@/components/ui/button";
 import { fmtDate, fmtDateTime, qty } from "@/lib/format";
-import { receivePurchaseOrder, setPurchaseOrderStatus } from "../../actions";
+import { receivePurchaseOrder, requestPurchaseOrderEmail, setPurchaseOrderStatus } from "../../actions";
 
 export const metadata = { title: "Purchase order" };
 
@@ -88,7 +88,15 @@ export default async function PurchaseOrderPage({ params }: { params: Promise<{ 
                   </ActionForm>
                 ) : <p className="text-xs text-fg-muted">An admin must approve this order.</p>
               ) : null}
-              {po.status === "approved" && canWrite ? <InlineAction action={setPurchaseOrderStatus} fields={{ id: po.id, status: "sent" }} label="Mark as sent to supplier" confirm="Confirm you have sent this order to the supplier yourself." /> : null}
+              {po.status === "approved" && can(ws.role, "executions.create") ? (
+                <ActionForm action={requestPurchaseOrderEmail} redirectTo={(d) => `/app/tasks/${d.executionId}`}>
+                  <input type="hidden" name="id" value={po.id} />
+                  <SubmitButton size="sm" disabled={!po.suppliers?.email}>Email to supplier (needs admin approval)</SubmitButton>
+                  {!po.suppliers?.email ? <p className="mt-1 text-xs text-fg-subtle">The supplier has no email address.</p> : null}
+                </ActionForm>
+              ) : null}
+              {po.status === "approved" && canWrite ? <InlineAction action={setPurchaseOrderStatus} fields={{ id: po.id, status: "sent" }} label="I sent it myself" variant="ghost" confirm="Confirm you have sent this order to the supplier yourself." /> : null}
+              {po.sent_at ? <p className="text-xs text-fg-muted">Sent {fmtDateTime(po.sent_at)}{po.sent_to ? ` to ${po.sent_to}` : " (recorded manually)"}</p> : null}
               {["draft", "approved", "sent"].includes(po.status) && canWrite ? <InlineAction action={setPurchaseOrderStatus} fields={{ id: po.id, status: "cancelled" }} label="Cancel order" variant="danger" confirm="Cancel this purchase order?" /> : null}
             </CardBody>
           </Card>

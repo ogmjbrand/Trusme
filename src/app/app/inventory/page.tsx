@@ -13,7 +13,7 @@ import { Field, Input, Select } from "@/components/ui/field";
 import { RepeatRows } from "@/components/ui/repeat-rows";
 import { fmtDate, fmtDateTime, qty } from "@/lib/format";
 import { cn } from "@/lib/cn";
-import { createPurchaseOrder, recordMovement, recordSale, requestRestockPlan, saveProduct, saveSupplier } from "./actions";
+import { createPurchaseOrder, invoiceFromSale, recordMovement, recordSale, requestRestockPlan, saveProduct, saveSupplier } from "./actions";
 
 export const metadata = { title: "Inventory" };
 const TABS = ["products", "restock", "sales", "suppliers", "orders", "movements"] as const;
@@ -23,12 +23,13 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
   const ws = await getWorkspace();
   const org = ws.org.organizationId;
   const canWrite = can(ws.role, "records.write");
-  const [products, suppliers, orders, movements, customers] = await Promise.all([
+  const [products, suppliers, orders, movements, customers, sales] = await Promise.all([
     ws.supabase.from("products").select("*, suppliers:preferred_supplier_id(name, lead_time_days)").eq("organization_id", org).order("name"),
     ws.supabase.from("suppliers").select("*").eq("organization_id", org).order("name"),
     ws.supabase.from("purchase_orders").select("id, po_number, status, currency, total_minor, created_at, expected_at, is_sample, suppliers(name)").eq("organization_id", org).order("created_at", { ascending: false }).limit(100),
     ws.supabase.from("inventory_movements").select("id, movement_type, quantity, reason, occurred_at, reference_type, products(name, sku)").eq("organization_id", org).order("occurred_at", { ascending: false }).limit(100),
     ws.supabase.from("customers").select("id, name").eq("organization_id", org).order("name"),
+    ws.supabase.from("sales").select("id, sale_number, occurred_at, currency, channel, discount_minor, invoice_id, is_sample, customers(name), sale_items(quantity, returned_quantity, unit_price_minor)").eq("organization_id", org).order("occurred_at", { ascending: false }).limit(30),
   ]);
   type P = ProductStock & { category: string | null; unit: string; unit_price_minor: number; is_active: boolean; is_sample: boolean; suppliers: { name: string; lead_time_days: number | null } | null };
   const prods = ((products.data ?? []) as unknown as P[]).map((p) => ({ ...p, stock_on_hand: Number(p.stock_on_hand), reorder_point: Number(p.reorder_point), reorder_quantity: Number(p.reorder_quantity) }));
@@ -154,6 +155,30 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
       ) : null}
 
       {tab === "sales" ? (
+        <div className="space-y-6">
+        <Card>
+          <CardHeader title="Recent sales" description="Invoicing a sale does not touch stock again — the sale already moved it." />
+          {(sales.data ?? []).length ? (
+            <Table>
+              <THead><TR><TH>Sale</TH><TH>Customer</TH><TH>Channel</TH><TH className="text-right">Net total</TH><TH>Invoice</TH></TR></THead>
+              <TBody>
+                {((sales.data ?? []) as unknown as { id: string; sale_number: string; occurred_at: string; currency: string; channel: string | null; discount_minor: number; invoice_id: string | null; is_sample: boolean; customers: { name: string } | null; sale_items: { quantity: number; returned_quantity: number; unit_price_minor: number }[] }[]).map((s) => (
+                  <TR key={s.id}>
+                    <TD><div className="font-medium">{s.sale_number} {s.is_sample ? <SampleBadge /> : null}</div><div className="text-xs text-fg-subtle">{fmtDateTime(s.occurred_at)}</div></TD>
+                    <TD className="text-fg-muted">{s.customers?.name ?? "Walk-in"}</TD>
+                    <TD className="text-fg-muted">{s.channel ?? "—"}</TD>
+                    <TD className="tabular text-right">{formatMoney(s.sale_items.reduce((t, i) => t + Math.round((Number(i.quantity) - Number(i.returned_quantity)) * i.unit_price_minor), 0) - s.discount_minor, s.currency)}</TD>
+                    <TD>
+                      {s.invoice_id ? <Link href={`/app/invoices/${s.invoice_id}`} className="text-xs text-brand hover:underline">View invoice</Link>
+                        : canWrite && s.customers ? <ActionForm action={invoiceFromSale} redirectTo={(d) => `/app/invoices/${d.id}`}><input type="hidden" name="sale_id" value={s.id} /><SubmitButton size="sm" variant="ghost">Create invoice</SubmitButton></ActionForm>
+                        : <span className="text-xs text-fg-subtle">{s.customers ? "—" : "No customer"}</span>}
+                    </TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          ) : <CardBody><p className="text-sm text-fg-muted">No sales recorded yet.</p></CardBody>}
+        </Card>
         <Card>
           <CardHeader title="Record a sale" description="Reduces stock, snapshots unit cost for MarginGuard, all in one transaction." />
           <CardBody>
@@ -179,6 +204,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
             )}
           </CardBody>
         </Card>
+        </div>
       ) : null}
 
       {tab === "suppliers" ? (

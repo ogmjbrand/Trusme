@@ -4,6 +4,7 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runAction, type ActionResult } from "@/lib/errors";
 import { agreementHash, applyChange, jobByToken } from "@/lib/services/jobproof";
+import { clientIp, enforceRateLimit } from "@/lib/services/rate-limit";
 
 // Public customer actions. Authorization = possession of the share token
 // (stored only as a hash). Every write is scoped to the token's job.
@@ -11,6 +12,8 @@ import { agreementHash, applyChange, jobByToken } from "@/lib/services/jobproof"
 const name = z.string().trim().min(2, "Type your full name").max(120);
 
 async function load(token: string) {
+  await enforceRateLimit("share_ip", await clientIp(), 30);
+  await enforceRateLimit("share_token", token, 20);
   const admin = createAdminClient();
   const job = await jobByToken(admin, token);
   if (!job) throw new Error("This link is invalid or has been revoked");

@@ -1,7 +1,8 @@
 import "server-only";
 import { z } from "zod";
+import { formatMoney } from "@/lib/money";
 import { recommendRestock, type ProductStock, type SalesHistoryPoint } from "@/lib/domain/inventory";
-import type { ToolDefinition } from "@/lib/execution/types";
+import { ToolError, type ToolDefinition } from "@/lib/execution/types";
 import { must, type AppToolContext } from "./context";
 
 const rec = z.object({
@@ -139,5 +140,61 @@ export const draftPurchaseOrders: ToolDefinition<PoInput, PoOutput, AppToolConte
       outcome: purchaseOrders.length ? "prepared" : "no_op",
       refs: purchaseOrders.map((p) => ({ type: "purchase_order", id: p.id, label: `${p.poNumber} (draft)`, href: `/app/inventory/purchase-orders/${p.id}` })),
     };
+  },
+};
+
+type SendPoInput = { purchaseOrderId: string; recipient?: string; poNumber?: string; total?: string; lineCount?: number };
+type SendPoOutput = { purchaseOrderId: string; recipient: string; providerMessageId: string };
+
+export const sendPurchaseOrder: ToolDefinition<SendPoInput, SendPoOutput, AppToolContext> = {
+  id: "purchase_orders.send_to_supplier",
+  title: "Email purchase order to supplier",
+  description: "Emails an APPROVED purchase order to its supplier and marks it sent. Consequential: needs admin approval of the exact recipient and total.",
+  module: "stocksense",
+  sideEffect: "consequential",
+  inputSchema: z.object({
+    purchaseOrderId: z.string().uuid(),
+    recipient: z.string().email().optional(),
+    poNumber: z.string().optional(),
+    total: z.string().optional(),
+    lineCount: z.number().int().optional(),
+  }),
+  outputSchema: z.object({ purchaseOrderId: z.string(), recipient: z.string(), providerMessageId: z.string() }),
+  minRole: "member",
+  approverMinRole: "admin",
+  retry: { maxAttempts: 1, idempotent: false },
+  timeoutMs: 30_000,
+  summarize: (i) => (i.recipient ? `Email ${i.poNumber} (${i.lineCount} line(s), total ${i.total}) to ${i.recipient}` : "Email the purchase order to its supplier (recipient resolved before approval)"),
+  async resolve(ctx, input) {
+    if (!ctx.email.configured) throw new ToolError("Email delivery is not configured; the purchase order was not sent.", { code: "setup_required", setupRequired: ctx.email.missing });
+    const po = must(await ctx.db.from("purchase_orders").select("id, po_number, status, currency, total_minor, suppliers(email), purchase_order_items(id)").eq("organization_id", ctx.orgId).eq("id", input.purchaseOrderId).maybeSingle(), "load po") as
+      | { id: string; po_number: string; status: string; currency: string; total_minor: number; suppliers: { email: string | null } | null; purchase_order_items: { id: string }[] }
+      | null;
+    if (!po) throw new ToolError("Purchase order not found", { code: "not_found" });
+    if (po.status !== "approved") throw new ToolError(`Only approved purchase orders can be sent (this one is ${po.status})`, { code: "invalid_state" });
+    if (!po.suppliers?.email) throw new ToolError("The supplier has no email address on file", { code: "missing_recipient" });
+    return { purchaseOrderId: po.id, recipient: po.suppliers.email, poNumber: po.po_number, total: formatMoney(po.total_minor, po.currency), lineCount: po.purchase_order_items.length };
+  },
+  async run(ctx, input) {
+    type Line = { quantity: number; unit_cost_minor: number; products: { sku: string; name: string } | null };
+    const po = must(await ctx.db.from("purchase_orders").select("id, po_number, status, currency, total_minor, expected_at, notes, suppliers(name, email), purchase_order_items(quantity, unit_cost_minor, products(sku, name))").eq("organization_id", ctx.orgId).eq("id", input.purchaseOrderId).single(), "load po") as unknown as {
+      id: string; po_number: string; status: string; currency: string; total_minor: number; expected_at: string | null; notes: string | null; suppliers: { name: string; email: string | null } | null; purchase_order_items: Line[];
+    };
+    if (po.status !== "approved") throw new ToolError(`Purchase order is ${po.status}; nothing was sent`, { code: "invalid_state" });
+    if (po.suppliers?.email !== input.recipient) throw new ToolError("Supplier email changed after approval; nothing was sent", { code: "recipient_changed" });
+    if (formatMoney(po.total_minor, po.currency) !== input.total) throw new ToolError("Order total changed after approval; nothing was sent", { code: "total_changed" });
+    const org = must(await ctx.db.from("organizations").select("name").eq("id", ctx.orgId).single(), "org") as { name: string };
+    const lines = po.purchase_order_items.map((l) => `- ${l.products?.sku ?? ""} ${l.products?.name ?? ""}: ${Number(l.quantity)} × ${formatMoney(l.unit_cost_minor, po.currency)}`);
+    const text = [`Hello ${po.suppliers?.name ?? ""},`, "", `Please find purchase order ${po.po_number} from ${org.name}.`, "", ...lines, "", `Total: ${formatMoney(po.total_minor, po.currency)}`, po.expected_at ? `Requested delivery: ${po.expected_at}` : "", po.notes ? `Notes: ${po.notes}` : "", "", "Please reply to confirm availability, price and delivery date.", "", org.name].filter((l, i, a) => !(l === "" && a[i - 1] === "")).join("\n");
+    const res = await ctx.email.send({ to: input.recipient!, subject: `Purchase order ${po.po_number} from ${org.name}`, text, idempotencyKey: `po-${po.id}` });
+    must(await ctx.db.from("purchase_orders").update({ status: "sent", sent_at: new Date().toISOString(), sent_to: input.recipient }).eq("organization_id", ctx.orgId).eq("id", po.id).eq("status", "approved"), "mark sent");
+    await ctx.audit("purchase_order.emailed", "purchase_order", po.id, { recipient: input.recipient, provider_message_id: res.messageId });
+    return { output: { purchaseOrderId: po.id, recipient: input.recipient!, providerMessageId: res.messageId }, outcome: "sent", refs: [{ type: "purchase_order", id: po.id, label: `${po.po_number} sent`, href: `/app/inventory/purchase-orders/${po.id}` }] };
+  },
+  async verify(ctx, input) {
+    const r = must(await ctx.db.from("purchase_orders").select("status, sent_to").eq("organization_id", ctx.orgId).eq("id", input.purchaseOrderId).single(), "verify") as { status: string; sent_to: string | null };
+    return r.status === "sent" && r.sent_to === input.recipient
+      ? { status: "verified", detail: "Email accepted by the provider and the order is marked sent (supplier receipt is not confirmed)." }
+      : { status: "failed", detail: `Order status is ${r.status}.` };
   },
 };

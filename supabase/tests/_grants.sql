@@ -3,3 +3,4 @@ grant usage on schema public to anon, authenticated, service_role;
 grant all on all tables in schema public to anon, authenticated, service_role;
 grant all on all sequences in schema public to anon, authenticated, service_role;
 grant execute on all functions in schema public to anon, authenticated, service_role;
+revoke execute on function public.rate_limit_hit(text, int, int) from public, anon, authenticated;

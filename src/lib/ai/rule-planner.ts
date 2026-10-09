@@ -11,7 +11,8 @@ export function ruleBasedPlan(request: string): ExecutionPlan {
   const add = (s: PlanStep) => steps.push(s) - 1;
 
   const wantsReceivables = /\b(overdue|unpaid|owe|owing|receivable|collect|debtor|invoice|outstanding)\b/.test(r);
-  const wantsReminders = /\b(remind|reminder|follow[- ]?up|chase|nudge)\w*/.test(r);
+  const careerContext = /\b(job applications?|interviews?|cv|resume|career)\b/.test(r);
+  const wantsReminders = /\b(remind|reminder|follow[- ]?up|chase|nudge)\w*/.test(r) && (!careerContext || /\b(invoice|payment|owe|debtor|receivable)/.test(r));
   const wantsSend = /\bsend\b|\bemail them\b/.test(r) && wantsReminders;
   if (wantsReceivables || wantsReminders) {
     const find = add({ toolId: "invoices.find_overdue", title: "Find overdue invoices", rationale: "Identify unpaid invoices past their due date.", input: { minDaysOverdue: 1, limit: 50 } });
@@ -51,7 +52,15 @@ export function ruleBasedPlan(request: string): ExecutionPlan {
     add({ toolId: "launch.create_plan", title: "Create launch plan", rationale: "Build a checklist with official sources to verify.", input: { name, idea: request.slice(0, 4000) } });
   }
 
-  if (/\b(cv|resume|cover letter|job application|interview)\b/.test(r)) {
+  if (/\b(jobs?|customers? confirm|dispute|jobproof|work orders?|service jobs?)\b/.test(r) && !/\bjob applications?\b/.test(r)) {
+    add({ toolId: "jobs.attention_report", title: "Review service jobs needing attention", rationale: "Disputes, confirmations, unpaid completed work and deadlines.", input: { deadlineWithinDays: 3 } });
+  }
+
+  if (/\b(follow[- ]?ups?|applications?|interviews?)\b/.test(r) && /\b(job|career|application|interview)/.test(r)) {
+    add({ toolId: "career.follow_ups", title: "Check application follow-ups", rationale: "Find follow-ups due and upcoming interviews.", input: { withinDays: 7 } });
+  }
+
+  if (/\b(cv|resume|cover letter)\b/.test(r)) {
     notes.push("Career documents need a specific saved application. Open CareerVault, select the application and choose “Draft documents”.");
   }
 

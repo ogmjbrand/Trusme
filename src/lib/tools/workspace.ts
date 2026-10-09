@@ -168,3 +168,66 @@ export const launchCreatePlan: ToolDefinition<{ name: string; idea: string; targ
     };
   },
 };
+
+// ---------------------------------------------------------------------------
+// JobProof & CareerVault summaries (read-only)
+// ---------------------------------------------------------------------------
+const jobItem = z.object({ jobId: z.string(), title: z.string(), status: z.string(), paymentStatus: z.string(), deadline: z.string().nullable(), reason: z.string() });
+
+export const jobsAttention: ToolDefinition<{ deadlineWithinDays: number }, { items: z.infer<typeof jobItem>[] }, AppToolContext> = {
+  id: "jobs.attention_report",
+  title: "Review service jobs needing attention",
+  description: "Lists JobProof jobs that are disputed, awaiting customer confirmation, completed but unpaid, awaiting agreement, or near/over their deadline. Read-only.",
+  module: "jobproof",
+  sideEffect: "read",
+  inputSchema: z.object({ deadlineWithinDays: z.number().int().min(0).max(60).default(3) }),
+  outputSchema: z.object({ items: z.array(jobItem) }),
+  minRole: "viewer",
+  retry: { maxAttempts: 3, idempotent: true },
+  timeoutMs: 15_000,
+  summarize: (i) => `Review jobs needing attention (deadlines within ${i.deadlineWithinDays} days)`,
+  async run(ctx, input) {
+    const jobs = must(await ctx.db.from("service_jobs").select("id, title, status, payment_status, deadline").eq("organization_id", ctx.orgId).not("status", "in", "(cancelled)").limit(500), "jobs") as { id: string; title: string; status: string; payment_status: string; deadline: string | null }[];
+    const horizon = addDays(today(ctx), input.deadlineWithinDays);
+    const items = jobs
+      .map((j) => {
+        const reason =
+          j.status === "disputed" ? "Disputed — review the record and dispute notes"
+          : j.status === "awaiting_confirmation" ? "Waiting for the customer to confirm completion"
+          : j.status === "completed" && j.payment_status !== "paid" ? `Completed but ${j.payment_status.replace("_", " ")}`
+          : j.status === "proposed" ? "Agreement proposed; customer has not accepted"
+          : j.deadline && ["agreed", "in_progress"].includes(j.status) && j.deadline <= horizon ? (j.deadline < today(ctx) ? "Past its deadline" : "Deadline approaching")
+          : null;
+        return reason ? { jobId: j.id, title: j.title, status: j.status, paymentStatus: j.payment_status, deadline: j.deadline, reason } : null;
+      })
+      .filter((x): x is z.infer<typeof jobItem> => x !== null);
+    return { output: { items }, outcome: "analyzed", refs: items.slice(0, 10).map((i) => ({ type: "service_job", id: i.jobId, label: i.title, href: `/app/jobs/${i.jobId}` })) };
+  },
+};
+
+const appItem = z.object({ applicationId: z.string(), company: z.string(), role: z.string(), status: z.string(), followUpOn: z.string().nullable(), interviewAt: z.string().nullable(), reason: z.string() });
+
+export const careerFollowUps: ToolDefinition<{ withinDays: number }, { items: z.infer<typeof appItem>[] }, AppToolContext> = {
+  id: "career.follow_ups",
+  title: "Check application follow-ups",
+  description: "Lists the requesting user's job applications with follow-ups due or interviews coming up. Private to that user. Read-only.",
+  module: "careervault",
+  sideEffect: "read",
+  inputSchema: z.object({ withinDays: z.number().int().min(0).max(60).default(7) }),
+  outputSchema: z.object({ items: z.array(appItem) }),
+  minRole: "viewer",
+  retry: { maxAttempts: 3, idempotent: true },
+  timeoutMs: 15_000,
+  summarize: (i) => `Check your application follow-ups and interviews in the next ${i.withinDays} days`,
+  async run(ctx, input) {
+    const apps = must(await ctx.db.from("job_applications").select("id, company, role_title, status, follow_up_on, interview_at").eq("organization_id", ctx.orgId).eq("user_id", ctx.actorUserId).not("status", "in", "(rejected,withdrawn,offer)"), "applications") as { id: string; company: string; role_title: string; status: string; follow_up_on: string | null; interview_at: string | null }[];
+    const horizon = addDays(today(ctx), input.withinDays);
+    const items = apps
+      .map((a) => {
+        const reason = a.interview_at && a.interview_at.slice(0, 10) >= today(ctx) && a.interview_at.slice(0, 10) <= horizon ? "Interview coming up — prepare" : a.follow_up_on && a.follow_up_on <= horizon ? (a.follow_up_on < today(ctx) ? "Follow-up overdue" : "Follow-up due soon") : null;
+        return reason ? { applicationId: a.id, company: a.company, role: a.role_title, status: a.status, followUpOn: a.follow_up_on, interviewAt: a.interview_at, reason } : null;
+      })
+      .filter((x): x is z.infer<typeof appItem> => x !== null);
+    return { output: { items }, outcome: "analyzed", refs: items.map((i) => ({ type: "job_application", id: i.applicationId, label: `${i.role} · ${i.company}`, href: `/app/career?application=${i.applicationId}` })) };
+  },
+};

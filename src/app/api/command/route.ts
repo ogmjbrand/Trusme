@@ -9,6 +9,7 @@ import { getAIProvider } from "@/lib/ai/provider";
 import { toolRegistry } from "@/lib/tools";
 import { PlanValidationError } from "@/lib/execution/types";
 import { toUserError } from "@/lib/errors";
+import { enforceRateLimit, RateLimitError } from "@/lib/services/rate-limit";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -23,6 +24,12 @@ export async function POST(req: Request) {
   const ws = await getWorkspace();
   if (!can(ws.role, "executions.create")) {
     return NextResponse.json({ error: "Viewers cannot run commands. Ask an admin for member access." }, { status: 403 });
+  }
+  try {
+    await enforceRateLimit("command_user", ws.user.id, 20);
+  } catch (err) {
+    if (err instanceof RateLimitError) return NextResponse.json({ error: err.message }, { status: 429 });
+    throw err;
   }
   const parsed = body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid request" }, { status: 400 });
